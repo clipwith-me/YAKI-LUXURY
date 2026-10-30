@@ -1,0 +1,1157 @@
+// YAKI'S LUXE HOMES — relational schema.
+//
+// Conventions:
+// - Money is stored as BigInt kobo (NGN minor units). Never floats.
+// - Rates are basis points (1% = 100 bps) so 2.5% is exact.
+// - Soft deletion (`deletedAt`) on business records people may need to audit later;
+//   append-only tables (AuditLog, LeadEvent, AnalyticsEvent) are never updated.
+// - Every query that serves a partner MUST be scoped by partnerId in the service layer.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────── Identity & access ─────────────────────────────
+
+enum UserRole {
+  CUSTOMER
+  PARTNER
+  SUPER_ADMIN
+  ADMIN
+  PROPERTY_MANAGER
+  LEAD_MANAGER
+  PARTNER_MANAGER
+  FINANCE
+  CONTENT_MANAGER
+  SUPPORT
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  phone        String?
+  role         UserRole   @default(CUSTOMER)
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+
+  sessions           Session[]
+  customer           Customer?
+  partnerMemberships PartnerUser[]
+  favorites          Favorite[]
+  alerts             PropertyAlert[]
+  notifications      Notification[]
+  assignedLeads      Lead[]               @relation("LeadAssignee")
+  leadEvents         LeadEvent[]
+  auditLogs          AuditLog[]
+  verifications      VerificationRecord[] @relation("Verifier")
+  uploadedDocuments  Document[]           @relation("DocumentUploader")
+  reviewedDocuments  Document[]           @relation("DocumentReviewer")
+  reviews            Review[]             @relation("ReviewAuthor")
+  messages           Message[]
+
+  @@index([role, status])
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  // SHA-256 of the cookie token. The raw token never touches the database.
+  tokenHash  String   @unique
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// A customer can be a guest (inquiry without an account) or linked to a User.
+// Leads always point at a Customer so attribution survives account creation.
+model Customer {
+  id             String    @id @default(cuid())
+  userId         String?   @unique
+  fullName       String
+  email          String    @unique
+  phone          String?
+  marketingOptIn Boolean   @default(false)
+  preferences    Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  user  User?  @relation(fields: [userId], references: [id])
+  leads Lead[]
+  deals Deal[]
+
+  @@index([phone])
+}
+
+// ───────────────────────────── Partners ─────────────────────────────
+
+enum PartnerType {
+  DEVELOPER
+  REAL_ESTATE_COMPANY
+  AGENCY
+  PROPERTY_MARKETER
+  PROPERTY_OWNER
+}
+
+enum PartnerStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  SUSPENDED
+  REJECTED
+}
+
+enum PartnerUserRole {
+  OWNER
+  MANAGER
+  AGENT
+}
+
+model Partner {
+  id                 String        @id @default(cuid())
+  slug               String        @unique
+  companyName        String
+  type               PartnerType
+  description        String?
+  logoUrl            String?
+  website            String?
+  email              String
+  phone              String
+  officeAddress      String
+  city               String
+  state              String
+  // Company registration (e.g. CAC RC/BN number) as supplied by the partner. Unverified until a
+  // VerificationRecord says otherwise.
+  registrationNumber String?
+  licenseInfo        String?
+  areasServed        String[]
+  propertyCategories String[]
+  status             PartnerStatus @default(PENDING)
+  statusReason       String?
+  approvedAt         DateTime?
+  approvedById       String?
+  // Staff-only. Never rendered on public or partner surfaces.
+  internalNotes      String?
+  isDemo             Boolean       @default(false)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  deletedAt          DateTime?
+
+  members       PartnerUser[]
+  properties    Property[]
+  agreements    PartnerAgreement[]
+  leads         Lead[]
+  deals         Deal[]
+  commissions   Commission[]
+  documents     Document[]
+  verifications VerificationRecord[]
+  reviews       Review[]
+
+  @@index([status])
+}
+
+model PartnerUser {
+  id        String          @id @default(cuid())
+  partnerId String
+  userId    String
+  role      PartnerUserRole @default(OWNER)
+  createdAt DateTime        @default(now())
+  partner   Partner         @relation(fields: [partnerId], references: [id])
+  user      User            @relation(fields: [userId], references: [id])
+
+  @@unique([partnerId, userId])
+  @@index([userId])
+}
+
+enum CommissionType {
+  PERCENTAGE
+  FIXED
+}
+
+enum AgreementStatus {
+  DRAFT
+  ACTIVE
+  EXPIRED
+  TERMINATED
+}
+
+enum AgreementScope {
+  ALL_PROPERTIES
+  SELECTED_PROPERTIES
+}
+
+model PartnerAgreement {
+  id                    String          @id @default(cuid())
+  partnerId             String
+  reference             String          @unique
+  agreementDate         DateTime
+  startDate             DateTime
+  endDate               DateTime?
+  commissionType        CommissionType
+  commissionRateBps     Int?
+  fixedFeeKobo          BigInt?
+  // Contractual referral-protection period. Configurable per agreement (30/60/90/180/365/...).
+  attributionWindowDays Int
+  scope                 AgreementScope  @default(ALL_PROPERTIES)
+  paymentTermsDays      Int             @default(30)
+  cancellationRules     String?
+  specialConditions     String?
+  status                AgreementStatus @default(DRAFT)
+  createdById           String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  partner     Partner           @relation(fields: [partnerId], references: [id])
+  properties  Property[]
+  documents   Document[]
+  commissions Commission[]
+  leads       LeadAttribution[]
+
+  @@index([partnerId, status])
+}
+
+// ───────────────────────────── Locations ─────────────────────────────
+
+enum LocationType {
+  STATE
+  AREA
+}
+
+model Location {
+  id          String       @id @default(cuid())
+  type        LocationType
+  name        String
+  slug        String
+  // e.g. "lagos" or "lagos/lekki" — unique and used in SEO URLs.
+  path        String       @unique
+  parentId    String?
+  description String?
+  heroImage   String?
+  lat         Float?
+  lng         Float?
+  isActive    Boolean      @default(true)
+  sortOrder   Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  parent     Location?  @relation("LocationTree", fields: [parentId], references: [id])
+  children   Location[] @relation("LocationTree")
+  properties Property[]
+
+  @@unique([parentId, slug])
+  @@index([type, isActive])
+}
+
+// ───────────────────────────── Properties ─────────────────────────────
+
+enum ListingType {
+  SALE
+  RENT
+}
+
+enum PropertyType {
+  DETACHED_DUPLEX
+  SEMI_DETACHED_DUPLEX
+  TERRACE
+  APARTMENT
+  PENTHOUSE
+  VILLA
+  MAISONETTE
+  BUNGALOW
+  TOWNHOUSE
+  LAND
+  COMMERCIAL
+}
+
+enum PropertyStatus {
+  DRAFT
+  PENDING_REVIEW
+  CHANGES_REQUESTED
+  PUBLISHED
+  REJECTED
+  ARCHIVED
+}
+
+enum Availability {
+  AVAILABLE
+  UNDER_OFFER
+  SOLD
+  LET
+  OFF_MARKET
+}
+
+enum PricePeriod {
+  TOTAL
+  PER_YEAR
+  PER_MONTH
+}
+
+model Property {
+  id                String          @id @default(cuid())
+  // Public, non-sequential reference shown to customers (YLP-XXXXXX).
+  reference         String          @unique
+  slug              String          @unique
+  partnerId         String
+  locationId        String
+  agreementId       String?
+  title             String
+  description       String
+  listingType       ListingType
+  propertyType      PropertyType
+  status            PropertyStatus  @default(DRAFT)
+  availability      Availability    @default(AVAILABLE)
+  priceKobo         BigInt
+  pricePeriod       PricePeriod     @default(TOTAL)
+  priceOnRequest    Boolean         @default(false)
+  bedrooms          Int             @default(0)
+  bathrooms         Int             @default(0)
+  sizeSqm           Int?
+  plotSizeSqm       Int?
+  parkingSpaces     Int?
+  // Private by default. Only the area is public unless showExactAddress is set by staff.
+  addressLine       String
+  showExactAddress  Boolean         @default(false)
+  // Approximate (neighbourhood-level) coordinates for maps.
+  lat               Float?
+  lng               Float?
+  furnished         Boolean         @default(false)
+  serviced          Boolean         @default(false)
+  offPlan           Boolean         @default(false)
+  newConstruction   Boolean         @default(false)
+  isLuxury          Boolean         @default(false)
+  featured          Boolean         @default(false)
+  developmentName   String?
+  developerName     String?
+  completionDate    DateTime?
+  partnerReference  String?
+  // Partner's own statement about documentation (e.g. title type). Staff-only; NOT a verification.
+  documentationInfo String?
+  // Optional per-property commission override of the partner agreement.
+  commissionType    CommissionType?
+  commissionRateBps Int?
+  fixedFeeKobo      BigInt?
+  videoUrl          String?
+  virtualTourUrl    String?
+  floorPlanUrl      String?
+  features          String[]
+  submittedAt       DateTime?
+  reviewedAt        DateTime?
+  reviewedById      String?
+  reviewNote        String?
+  publishedAt       DateTime?
+  listingExpiresAt  DateTime?
+  isDemo            Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deletedAt         DateTime?
+
+  partner       Partner              @relation(fields: [partnerId], references: [id])
+  location      Location             @relation(fields: [locationId], references: [id])
+  agreement     PartnerAgreement?    @relation(fields: [agreementId], references: [id])
+  images        PropertyImage[]
+  videos        PropertyVideo[]
+  amenities     PropertyAmenity[]
+  documents     Document[]
+  verifications VerificationRecord[]
+  leads         Lead[]
+  viewings      Viewing[]
+  offers        Offer[]
+  deals         Deal[]
+  commissions   Commission[]
+  favorites     Favorite[]
+  reviews       Review[]
+
+  @@index([status, listingType, locationId, priceKobo])
+  @@index([status, isLuxury])
+  @@index([status, featured])
+  @@index([status, publishedAt])
+  @@index([partnerId, status])
+  @@index([status, bedrooms])
+}
+
+model PropertyImage {
+  id         String   @id @default(cuid())
+  propertyId String
+  url        String
+  alt        String
+  sortOrder  Int      @default(0)
+  isCover    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId, sortOrder])
+}
+
+model PropertyVideo {
+  id         String   @id @default(cuid())
+  propertyId String
+  url        String
+  title      String?
+  createdAt  DateTime @default(now())
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+}
+
+model Amenity {
+  id         String            @id @default(cuid())
+  key        String            @unique
+  label      String
+  category   String
+  properties PropertyAmenity[]
+}
+
+model PropertyAmenity {
+  propertyId String
+  amenityId  String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  amenity    Amenity  @relation(fields: [amenityId], references: [id])
+
+  @@id([propertyId, amenityId])
+  @@index([amenityId])
+}
+
+// ───────────────────────────── Documents & verification ─────────────────────────────
+
+enum DocumentType {
+  COMPANY_REGISTRATION
+  PROFESSIONAL_LICENSE
+  TITLE_DOCUMENT
+  SURVEY_PLAN
+  BUILDING_APPROVAL
+  PARTNERSHIP_AGREEMENT
+  IDENTITY
+  INSPECTION_REPORT
+  OTHER
+}
+
+enum DocumentStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum DocumentVisibility {
+  PRIVATE
+  PUBLIC
+}
+
+model Document {
+  id                   String             @id @default(cuid())
+  type                 DocumentType
+  title                String
+  fileName             String
+  storageKey           String             @unique
+  mimeType             String
+  sizeBytes            Int
+  sha256               String
+  visibility           DocumentVisibility @default(PRIVATE)
+  status               DocumentStatus     @default(PENDING)
+  expiresAt            DateTime?
+  partnerId            String?
+  propertyId           String?
+  agreementId          String?
+  verificationRecordId String?
+  uploadedById         String
+  reviewedById         String?
+  reviewedAt           DateTime?
+  reviewNotes          String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  deletedAt            DateTime?
+
+  partner      Partner?            @relation(fields: [partnerId], references: [id])
+  property     Property?           @relation(fields: [propertyId], references: [id])
+  agreement    PartnerAgreement?   @relation(fields: [agreementId], references: [id])
+  verification VerificationRecord? @relation(fields: [verificationRecordId], references: [id])
+  uploadedBy   User                @relation("DocumentUploader", fields: [uploadedById], references: [id])
+  reviewedBy   User?               @relation("DocumentReviewer", fields: [reviewedById], references: [id])
+
+  @@index([partnerId, status])
+  @@index([propertyId])
+  @@index([status, expiresAt])
+}
+
+enum VerificationSubject {
+  PARTNER
+  PROPERTY
+}
+
+enum VerificationCategory {
+  PARTNER_VERIFIED
+  LISTING_VERIFIED
+  INSPECTION_COMPLETED
+  DOCUMENTATION_REVIEWED
+  FEATURED_PARTNER
+}
+
+enum VerificationStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+// Badges are derived ONLY from ACTIVE, unexpired records created by staff. Nothing is inferred.
+model VerificationRecord {
+  id            String               @id @default(cuid())
+  subjectType   VerificationSubject
+  partnerId     String?
+  propertyId    String?
+  category      VerificationCategory
+  status        VerificationStatus   @default(PENDING)
+  verifiedById  String?
+  verifiedAt    DateTime?
+  reviewDueAt   DateTime?
+  // Plain-language scope shown publicly ("what this badge means").
+  publicNote    String?
+  internalNotes String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  partner    Partner?   @relation(fields: [partnerId], references: [id])
+  property   Property?  @relation(fields: [propertyId], references: [id])
+  verifiedBy User?      @relation("Verifier", fields: [verifiedById], references: [id])
+  documents  Document[]
+
+  @@index([propertyId, status])
+  @@index([partnerId, status])
+  @@index([status, reviewDueAt])
+}
+
+// ───────────────────────────── Leads & attribution ─────────────────────────────
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  VIEWING_REQUESTED
+  VIEWING_SCHEDULED
+  VIEWING_COMPLETED
+  OFFER_MADE
+  NEGOTIATION
+  CONTRACT_SIGNED
+  CLOSED
+  COMMISSION_PENDING
+  COMMISSION_DUE
+  COMMISSION_PAID
+  LOST
+  DISPUTED
+}
+
+enum LeadType {
+  VIEWING_REQUEST
+  INFORMATION_REQUEST
+  ADVISOR_CALLBACK
+  PURCHASE_INTEREST
+  GENERAL_ENQUIRY
+}
+
+enum LeadSource {
+  WEBSITE
+  WHATSAPP
+  PHONE
+  EMAIL
+  SOCIAL
+  REFERRAL
+  WALK_IN
+  OTHER
+}
+
+enum ContactPreference {
+  PHONE
+  EMAIL
+  WHATSAPP
+}
+
+model Lead {
+  id                    String            @id @default(cuid())
+  // Human-readable, per-year sequence: YLH-2026-00482.
+  code                  String            @unique
+  customerId            String
+  propertyId            String?
+  partnerId             String?
+  assignedToId          String?
+  type                  LeadType
+  status                LeadStatus        @default(NEW)
+  source                LeadSource        @default(WEBSITE)
+  message               String?
+  preferredContact      ContactPreference @default(PHONE)
+  preferredViewingAt    DateTime?
+  // Customer contact details are withheld from the partner until staff make the introduction.
+  introducedToPartnerAt DateTime?
+  partnerNotifiedAt     DateTime?
+  lostReason            String?
+  nextFollowUpAt        DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  customer    Customer         @relation(fields: [customerId], references: [id])
+  property    Property?        @relation(fields: [propertyId], references: [id])
+  partner     Partner?         @relation(fields: [partnerId], references: [id])
+  assignedTo  User?            @relation("LeadAssignee", fields: [assignedToId], references: [id])
+  attribution LeadAttribution?
+  events      LeadEvent[]
+  viewings    Viewing[]
+  offers      Offer[]
+  deal        Deal?
+  commission  Commission?
+  messages    Message[]
+
+  @@index([partnerId, status])
+  @@index([status, createdAt])
+  @@index([customerId, propertyId])
+  @@index([assignedToId, status])
+  @@index([nextFollowUpAt])
+}
+
+// Immutable evidence of origination. Written once when the lead is created.
+model LeadAttribution {
+  id                    String    @id @default(cuid())
+  leadId                String    @unique
+  agreementId           String?
+  firstTouchAt          DateTime?
+  landingUrl            String?
+  referrerUrl           String?
+  referralUrl           String?
+  utmSource             String?
+  utmMedium             String?
+  utmCampaign           String?
+  utmContent            String?
+  utmTerm               String?
+  // Salted hash of the anonymous visitor cookie — no raw IP stored.
+  visitorHash           String?
+  attributionWindowDays Int
+  protectedUntil        DateTime
+  consentVersion        String
+  // SHA-256 over the canonical evidence payload, so later tampering is detectable.
+  evidenceHash          String
+  createdAt             DateTime  @default(now())
+
+  lead      Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  agreement PartnerAgreement? @relation(fields: [agreementId], references: [id])
+
+  @@index([protectedUntil])
+}
+
+enum LeadEventType {
+  CREATED
+  REPEAT_INQUIRY
+  STATUS_CHANGED
+  NOTE
+  CONTACT_LOGGED
+  ASSIGNED
+  PARTNER_NOTIFIED
+  INTRODUCED_TO_PARTNER
+  VIEWING_REQUESTED
+  VIEWING_SCHEDULED
+  VIEWING_COMPLETED
+  VIEWING_CANCELLED
+  OFFER_RECORDED
+  OFFER_UPDATED
+  DEAL_OPENED
+  DEAL_CLOSED
+  COMMISSION_CREATED
+  COMMISSION_UPDATED
+  FLAGGED
+}
+
+// Append-only timeline. `partnerVisible` controls what partners see.
+model LeadEvent {
+  id             String        @id @default(cuid())
+  leadId         String
+  type           LeadEventType
+  actorId        String?
+  fromStatus     LeadStatus?
+  toStatus       LeadStatus?
+  body           String?
+  channel        String?
+  partnerVisible Boolean       @default(false)
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+
+  lead  Lead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([leadId, createdAt])
+}
+
+model LeadSequence {
+  year      Int @id
+  lastValue Int @default(0)
+}
+
+enum ViewingStatus {
+  REQUESTED
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ViewingMode {
+  IN_PERSON
+  VIRTUAL
+}
+
+model Viewing {
+  id             String        @id @default(cuid())
+  leadId         String
+  propertyId     String
+  status         ViewingStatus @default(REQUESTED)
+  mode           ViewingMode   @default(IN_PERSON)
+  scheduledAt    DateTime?
+  completedAt    DateTime?
+  notes          String?
+  reminderSentAt DateTime?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  lead     Lead     @relation(fields: [leadId], references: [id])
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@index([status, scheduledAt])
+  @@index([leadId])
+}
+
+enum OfferStatus {
+  SUBMITTED
+  COUNTERED
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+model Offer {
+  id          String      @id @default(cuid())
+  leadId      String
+  propertyId  String
+  amountKobo  BigInt
+  status      OfferStatus @default(SUBMITTED)
+  notes       String?
+  createdById String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  lead     Lead     @relation(fields: [leadId], references: [id])
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@index([leadId])
+}
+
+enum DealStatus {
+  IN_PROGRESS
+  CONTRACT_SIGNED
+  CLOSED
+  CANCELLED
+  DISPUTED
+}
+
+// Records the transaction the PARTNER conducted. YAKI never holds purchase funds.
+model Deal {
+  id                      String     @id @default(cuid())
+  leadId                  String     @unique
+  propertyId              String
+  partnerId               String
+  customerId              String
+  agreedPriceKobo         BigInt
+  status                  DealStatus @default(IN_PROGRESS)
+  contractSignedAt        DateTime?
+  closedAt                DateTime?
+  closedById              String?
+  withinAttributionWindow Boolean?
+  notes                   String?
+  createdAt               DateTime   @default(now())
+  updatedAt               DateTime   @updatedAt
+
+  lead       Lead        @relation(fields: [leadId], references: [id])
+  property   Property    @relation(fields: [propertyId], references: [id])
+  partner    Partner     @relation(fields: [partnerId], references: [id])
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  commission Commission?
+
+  @@index([partnerId, status])
+  @@index([status, closedAt])
+}
+
+enum CommissionStatus {
+  PENDING
+  DUE
+  INVOICED
+  PARTIALLY_PAID
+  PAID
+  DISPUTED
+  WAIVED
+}
+
+// YAKI revenue. Deliberately separate from the customer→partner property payment.
+model Commission {
+  id              String           @id @default(cuid())
+  dealId          String           @unique
+  leadId          String           @unique
+  partnerId       String
+  propertyId      String
+  agreementId     String?
+  basisAmountKobo BigInt
+  commissionType  CommissionType
+  rateBps         Int?
+  fixedFeeKobo    BigInt?
+  expectedKobo    BigInt
+  actualKobo      BigInt?
+  paidKobo        BigInt           @default(0)
+  dueDate         DateTime
+  status          CommissionStatus @default(PENDING)
+  invoiceNumber   String?          @unique
+  invoicedAt      DateTime?
+  paidAt          DateTime?
+  notes           String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  deal      Deal                @relation(fields: [dealId], references: [id])
+  lead      Lead                @relation(fields: [leadId], references: [id])
+  partner   Partner             @relation(fields: [partnerId], references: [id])
+  property  Property            @relation(fields: [propertyId], references: [id])
+  agreement PartnerAgreement?   @relation(fields: [agreementId], references: [id])
+  payments  CommissionPayment[]
+
+  @@index([status, dueDate])
+  @@index([partnerId, status])
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CHEQUE
+  CARD
+  OTHER
+}
+
+model CommissionPayment {
+  id           String        @id @default(cuid())
+  commissionId String
+  amountKobo   BigInt
+  paidAt       DateTime
+  method       PaymentMethod @default(BANK_TRANSFER)
+  // Bank/teller reference. Unique per commission so a payment can't be recorded twice.
+  reference    String
+  notes        String?
+  recordedById String
+  createdAt    DateTime      @default(now())
+
+  commission Commission @relation(fields: [commissionId], references: [id])
+
+  @@unique([commissionId, reference])
+}
+
+// ───────────────────────────── Communication ─────────────────────────────
+
+enum MessageAudience {
+  CUSTOMER
+  PARTNER
+}
+
+// Lead-scoped threads. YAKI staff sit in the middle of both threads, so partner and customer
+// never message each other directly through the platform before introduction.
+model Message {
+  id        String          @id @default(cuid())
+  leadId    String
+  audience  MessageAudience
+  senderId  String
+  body      String
+  createdAt DateTime        @default(now())
+
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id])
+
+  @@index([leadId, audience, createdAt])
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@index([userId, readAt, createdAt])
+}
+
+// Outbox for external channels; workers pick QUEUED rows. Keeps the request path fast.
+model NotificationDelivery {
+  id             String              @id @default(cuid())
+  notificationId String
+  channel        NotificationChannel
+  status         DeliveryStatus      @default(QUEUED)
+  provider       String?
+  error          String?
+  attempts       Int                 @default(0)
+  attemptedAt    DateTime?
+  createdAt      DateTime            @default(now())
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([status, channel])
+}
+
+// ───────────────────────────── Customer features ─────────────────────────────
+
+model Favorite {
+  userId     String
+  propertyId String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@id([userId, propertyId])
+  @@index([propertyId])
+}
+
+enum AlertFrequency {
+  INSTANT
+  DAILY
+  WEEKLY
+}
+
+model PropertyAlert {
+  id            String         @id @default(cuid())
+  userId        String
+  name          String
+  // Serialized SearchFilters (validated by zod on write).
+  criteria      Json
+  frequency     AlertFrequency @default(DAILY)
+  isActive      Boolean        @default(true)
+  lastCheckedAt DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([isActive, frequency])
+  @@index([userId])
+}
+
+enum ReviewSubject {
+  PROPERTY
+  PARTNER
+  SERVICE
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  HIDDEN
+  FLAGGED
+  INVESTIGATING
+}
+
+model Review {
+  id             String        @id @default(cuid())
+  subjectType    ReviewSubject
+  propertyId     String?
+  partnerId      String?
+  authorId       String
+  rating         Int
+  title          String
+  body           String
+  status         ReviewStatus  @default(PENDING)
+  moderatedById  String?
+  moderatedAt    DateTime?
+  moderationNote String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  author   User      @relation("ReviewAuthor", fields: [authorId], references: [id])
+  property Property? @relation(fields: [propertyId], references: [id])
+  partner  Partner?  @relation(fields: [partnerId], references: [id])
+
+  @@index([status, subjectType])
+}
+
+model NewsletterSubscriber {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  source    String?
+  consentAt DateTime @default(now())
+  createdAt DateTime @default(now())
+}
+
+// ───────────────────────────── Content ─────────────────────────────
+
+enum ArticleCategory {
+  MARKET_NEWS
+  BUYING_GUIDES
+  INVESTMENT
+  LUXURY_HOMES
+  PROPERTY_DEVELOPMENT
+  NEIGHBOURHOOD_GUIDES
+  MORTGAGE_FINANCE
+  HOME_DESIGN
+  DOCUMENTATION_EDUCATION
+}
+
+enum ArticleStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Article {
+  id             String          @id @default(cuid())
+  slug           String          @unique
+  title          String
+  excerpt        String
+  body           String
+  category       ArticleCategory
+  coverImage     String?
+  authorName     String
+  status         ArticleStatus   @default(DRAFT)
+  publishedAt    DateTime?
+  seoTitle       String?
+  seoDescription String?
+  isDemo         Boolean         @default(false)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([status, publishedAt])
+  @@index([category, status])
+}
+
+// ───────────────────────────── Risk, audit, analytics, config ─────────────────────────────
+
+enum FlagSubject {
+  PROPERTY
+  PARTNER
+  LEAD
+  CUSTOMER
+  USER
+  DOCUMENT
+}
+
+enum FlagStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  DISMISSED
+}
+
+enum FlagSource {
+  SYSTEM
+  STAFF
+}
+
+model RiskFlag {
+  id           String      @id @default(cuid())
+  subjectType  FlagSubject
+  subjectId    String
+  // Machine-readable rule code, e.g. DUPLICATE_LISTING, REPEATED_PHONE.
+  reason       String
+  details      String?
+  source       FlagSource
+  status       FlagStatus  @default(OPEN)
+  raisedById   String?
+  resolvedById String?
+  resolvedAt   DateTime?
+  resolution   String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([status, createdAt])
+  @@index([subjectType, subjectId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+  actor      User?    @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@index([createdAt])
+}
+
+enum AnalyticsEventType {
+  PROPERTY_VIEW
+  SEARCH
+  FAVORITE
+  SHARE
+  WHATSAPP_CLICK
+  ALERT_CREATED
+}
+
+model AnalyticsEvent {
+  id          String             @id @default(cuid())
+  type        AnalyticsEventType
+  propertyId  String?
+  partnerId   String?
+  userId      String?
+  visitorHash String?
+  query       String?
+  metadata    Json?
+  createdAt   DateTime           @default(now())
+
+  @@index([type, createdAt])
+  @@index([propertyId, type])
+  @@index([partnerId, type, createdAt])
+}
+
+model PlatformSetting {
+  key         String   @id
+  value       Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
+model RateLimitBucket {
+  key         String   @id
+  windowStart DateTime
+  count       Int
+}
