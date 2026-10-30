@@ -59,7 +59,7 @@ describe("authorization & tenant isolation", () => {
     await expect(getLeadForStaff(customer, leadA)).rejects.toThrow(/permission/);
     await expect(updateLeadStatus(a.actor, leadA, "QUALIFIED")).rejects.toThrow(/permission/);
     await expect(introduceLeadToPartner(a.actor, leadA)).rejects.toThrow(/permission/);
-    await expect(createAgreement(a.actor, { partnerId: a.partner.id, agreementDate: "2026-01-01", startDate: "2026-01-01", commissionType: "PERCENTAGE", commissionRatePercent: 0.01, attributionWindowDays: 1, paymentTermsDays: 0 })).rejects.toThrow(/permission/);
+    await expect(createAgreement(a.actor, { partnerId: a.partner.id, agreementDate: new Date("2026-01-01"), startDate: new Date("2026-01-01"), commissionType: "PERCENTAGE", commissionRatePercent: 0.01, attributionWindowDays: 1, paymentTermsDays: 0 })).rejects.toThrow(/permission/);
     await expect(createVerification(a.actor, { subjectType: "PROPERTY", subjectId: propertyA, category: "LISTING_VERIFIED", status: "ACTIVE" })).rejects.toThrow(/permission/);
   });
 
@@ -68,7 +68,7 @@ describe("authorization & tenant isolation", () => {
     const leadMgr = await makeUser("LEAD_MANAGER");
     const admin2 = await makeUser("ADMIN");
     await expect(getLeadForStaff(content, leadA)).rejects.toThrow(/permission/);
-    await expect(recordCommissionPayment(leadMgr, "x", { amount: "1", paidAt: "2026-01-01", reference: "abc" })).rejects.toThrow(/permission/);
+    await expect(recordCommissionPayment(leadMgr, "x", { amount: "1", paidAt: new Date("2026-01-01"), reference: "abc" })).rejects.toThrow(/permission/);
     await expect(updateSetting(admin2, "features.onlinePayments", true)).rejects.toThrow(/permission/);
   });
 

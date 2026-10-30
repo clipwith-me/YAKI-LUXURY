@@ -94,7 +94,8 @@ export async function dispatchQueuedDeliveries(limit = 100): Promise<{ sent: num
         where: { id: d.id },
         data: { status: res.status, provider: driver.name, error: res.detail ?? null, attempts: { increment: 1 }, attemptedAt: new Date() },
       });
-      res.status === "SENT" ? tally.sent++ : tally.skipped++;
+      if (res.status === "SENT") tally.sent++;
+      else tally.skipped++;
     } catch (err) {
       await db.notificationDelivery.update({
         where: { id: d.id },

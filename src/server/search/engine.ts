@@ -22,6 +22,7 @@ export function buildWhere(f: SearchFilters): Prisma.PropertyWhereInput {
   if (f.offPlan) and.push({ offPlan: true });
   if (f.newConstruction) and.push({ newConstruction: true });
   if (f.luxury) and.push({ isLuxury: true });
+  if (f.development) and.push({ OR: [{ offPlan: true }, { newConstruction: true }] });
   if (f.verified) and.push({ verifications: { some: { ...activeBadgeWhere(), category: { in: ["LISTING_VERIFIED", "INSPECTION_COMPLETED", "DOCUMENTATION_REVIEWED"] } } } });
   if (f.partner) and.push({ partner: { slug: f.partner } });
   for (const key of f.amenities ?? []) and.push({ amenities: { some: { amenity: { key } } } });

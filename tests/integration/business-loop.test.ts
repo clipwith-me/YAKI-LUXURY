@@ -71,8 +71,8 @@ describe("core business loop", () => {
     expect(approved.status).toBe("APPROVED");
     const agreement = await createAgreement(admin, {
       partnerId,
-      agreementDate: "2026-01-01",
-      startDate: "2026-01-01",
+      agreementDate: new Date("2026-01-01"),
+      startDate: new Date("2026-01-01"),
       commissionType: "PERCENTAGE",
       commissionRatePercent: 2,
       attributionWindowDays: 120,
@@ -178,10 +178,10 @@ describe("core business loop", () => {
 
   it("15. partner pays in two instalments; payments are idempotent by reference; admin marks paid", async () => {
     await transitionCommission(finance, commissionId, { status: "INVOICED" });
-    const partial = await recordCommissionPayment(finance, commissionId, { amount: "1,000,000", paidAt: "2026-11-01", reference: "TRF-001" });
+    const partial = await recordCommissionPayment(finance, commissionId, { amount: "1,000,000", paidAt: new Date("2026-11-01"), reference: "TRF-001" });
     expect(partial.status).toBe("PARTIALLY_PAID");
-    await expect(recordCommissionPayment(finance, commissionId, { amount: "1,000,000", paidAt: "2026-11-01", reference: "TRF-001" })).rejects.toThrow(/already recorded/);
-    const paid = await recordCommissionPayment(finance, commissionId, { amount: "2,000,000", paidAt: "2026-11-15", reference: "TRF-002" });
+    await expect(recordCommissionPayment(finance, commissionId, { amount: "1,000,000", paidAt: new Date("2026-11-01"), reference: "TRF-001" })).rejects.toThrow(/already recorded/);
+    const paid = await recordCommissionPayment(finance, commissionId, { amount: "2,000,000", paidAt: new Date("2026-11-15"), reference: "TRF-002" });
     expect(paid.status).toBe("PAID");
     expect(paid.paidKobo).toBe(nairaToKobo("3000000"));
     expect((await db.lead.findUniqueOrThrow({ where: { id: leadId } })).status).toBe("COMMISSION_PAID");

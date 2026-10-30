@@ -8,7 +8,7 @@ export async function resetDb() {
   await db.$executeRawUnsafe(`TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(", ")} RESTART IDENTITY CASCADE`);
 }
 
-export async function makeUser(role: UserRole, name = role): Promise<Actor & { email: string }> {
+export async function makeUser(role: UserRole, name: string = role): Promise<Actor & { email: string }> {
   const email = `${role.toLowerCase()}-${randomCode(6).toLowerCase()}@test.local`;
   const user = await db.user.create({ data: { email, name, role, passwordHash: "x" } });
   return { id: user.id, role, partnerIds: [], email };

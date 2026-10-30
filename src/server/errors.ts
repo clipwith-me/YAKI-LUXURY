@@ -1,3 +1,5 @@
+import { ZodError } from "zod";
+
 /**
  * Domain errors carry a stable code and a message that is SAFE to show to users.
  * Anything else is treated as an internal error and replaced with a generic message.
@@ -26,12 +28,18 @@ export const forbidden = (msg = "You don't have permission to do that.") => new 
 export const notFound = (msg = "We couldn't find what you were looking for.") => new DomainError("NOT_FOUND", msg);
 export const invalidState = (msg: string) => new DomainError("INVALID_STATE", msg);
 
-export type ActionResult<T = undefined> =
+export type ActionResult<T = void> =
   | { ok: true; data?: T; message?: string }
   | { ok: false; error: string; code: ErrorCode | "INTERNAL"; fieldErrors?: Record<string, string[] | undefined>; requestId?: string };
 
 /** Converts any thrown value into a client-safe ActionResult. Logs internals server-side only. */
 export function toActionError(err: unknown): Extract<ActionResult, { ok: false }> {
+  if (err instanceof ZodError) {
+    const flat = err.flatten();
+    const fieldErrors = flat.fieldErrors as Record<string, string[] | undefined>;
+    const first = flat.formErrors[0] ?? Object.values(fieldErrors).find((v) => v?.length)?.[0];
+    return { ok: false, error: first ? `Please check the form: ${first}` : "Please check the highlighted fields.", code: "VALIDATION", fieldErrors };
+  }
   if (err instanceof DomainError) {
     return { ok: false, error: err.message, code: err.code, fieldErrors: err.fieldErrors };
   }

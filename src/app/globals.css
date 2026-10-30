@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+/*
+ * YAKI'S LUXE HOMES design tokens.
+ * Ink + ivory + brass: quiet luxury, fintech-grade clarity. One accent, used sparingly.
+ */
+@theme {
+  --font-display: var(--font-cormorant), "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --color-ink: #0f1113;
+  --color-ink-2: #1b1e22;
+  --color-ink-3: #2a2e33;
+  --color-ivory: #faf8f4;
+  --color-stone-50: #f6f3ed;
+  --color-stone-100: #efeae1;
+  --color-stone-200: #e3dccf;
+  --color-stone-300: #cfc5b4;
+  --color-stone-400: #a99f8e;
+  --color-stone-500: #857c6d;
+  --color-stone-600: #645d52;
+  --color-stone-700: #48433b;
+  --color-brass-50: #f8f2e7;
+  --color-brass-100: #efe3cc;
+  --color-brass-300: #cfb07c;
+  --color-brass-500: #a8834b;
+  --color-brass-600: #8c6b38;
+  --color-brass-700: #6e532b;
+  --color-trust: #2e5e4e;
+  --color-trust-50: #e8f0ec;
+  --color-danger: #9b2c2c;
+  --color-danger-50: #f8e9e7;
+  --color-warning: #94650f;
+  --color-warning-50: #faf1de;
+
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --shadow-soft: 0 1px 2px rgb(15 17 19 / 0.04), 0 8px 24px -12px rgb(15 17 19 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(15 17 19 / 0.04), 0 18px 40px -18px rgb(15 17 19 / 0.28);
+
+  --animate-fade-up: fade-up 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body {
+    @apply bg-ivory text-ink font-sans antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+  ::selection { background: var(--color-brass-100); }
+  :focus-visible { outline: 2px solid var(--color-brass-500); outline-offset: 2px; }
+  /* Lining figures: Cormorant's default old-style numerals read poorly in prices and stats. */
+  h1, h2, h3, .font-display { font-family: var(--font-display); letter-spacing: -0.01em; font-variant-numeric: lining-nums; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  }
+}
+
+@layer components {
+  .eyebrow { @apply text-[11px] font-medium uppercase tracking-[0.22em] text-brass-600; }
+  .container-page { @apply mx-auto w-full max-w-[1320px] px-4 sm:px-6 lg:px-10; }
+  .prose-lux { @apply text-[15px] leading-7 text-stone-700; }
+  .prose-lux h2 { @apply mt-10 mb-3 text-2xl text-ink; }
+  .prose-lux h3 { @apply mt-6 mb-2 text-xl text-ink; }
+  .prose-lux p { @apply my-4; }
+  .prose-lux ul { @apply my-4 list-disc space-y-1 pl-5; }
+  .prose-lux a { @apply text-brass-600 underline underline-offset-4; }
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+}
+
+/* Leaflet base styles (subset) so the map renders without importing the full stylesheet globally. */
+.leaflet-container { font: inherit; background: var(--color-stone-100); }

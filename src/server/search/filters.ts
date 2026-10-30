@@ -55,6 +55,8 @@ export const searchFiltersSchema = z.object({
   newConstruction: flag,
   luxury: flag,
   verified: flag,
+  // Off-plan OR newly built — powers the New Developments collection.
+  development: flag,
   partner: z.string().trim().max(120).optional(),
   amenities: z.array(z.enum(AMENITY_KEYS)).max(AMENITY_KEYS.length).optional(),
   sort: z.enum(SORTS).optional(),
