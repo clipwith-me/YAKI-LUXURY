@@ -58,6 +58,19 @@ Demo data is **fictional and labelled DEMO everywhere**. It is seeded only when 
 
 ## Deployment
 
+### Vercel (recommended)
+
+1. Create a PostgreSQL database. Either use **Vercel → Storage → Create → Neon** (this sets `DATABASE_URL` for you), or create one at [neon.tech](https://neon.tech) and copy the pooled URL with `?sslmode=require`.
+2. **vercel.com/new → Import** `clipwith-me/yaki-luxury`. The framework is detected as Next.js.
+3. **Environment variables** (Production and Preview):
+   - `DATABASE_URL`
+   - `APP_SECRET` (32+ random characters)
+   - `CRON_SECRET` (32+ random characters)
+   - `NEXT_PUBLIC_SITE_URL` (e.g. `https://yaki-luxury.vercel.app`)
+4. Deploy. `vercel.json` runs `prisma migrate deploy` before `next build`, and schedules `/api/jobs` daily. The Hobby plan allows daily crons; on Pro, change the schedule to every 15 minutes.
+5. Seed once: `DATABASE_URL="<url>" SEED_ADMIN_EMAIL=... SEED_ADMIN_PASSWORD=... SEED_DEMO=true npm run db:seed`.
+6. Every push to a branch gets its own **Preview URL**. Pushes to the production branch go live.
+
 ### Netlify
 
 This is a full-stack app (server functions + PostgreSQL), so **don't use drag-and-drop deploys**. Netlify needs to build from the Git repository.
