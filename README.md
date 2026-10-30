@@ -67,7 +67,7 @@ Demo data is **fictional and labelled DEMO everywhere**. It is seeded only when 
    - `APP_SECRET` (32+ random characters)
    - `CRON_SECRET` (32+ random characters)
    - `NEXT_PUBLIC_SITE_URL` (e.g. `https://yaki-luxury.vercel.app`)
-4. Deploy. `vercel.json` runs `prisma migrate deploy` before `next build`, and schedules `/api/jobs` daily. The Hobby plan allows daily crons; on Pro, change the schedule to every 15 minutes.
+4. Deploy. `vercel.json` runs `scripts/vercel-build.mjs`, which accepts `DATABASE_URL` or the Neon/Postgres integration names (`POSTGRES_PRISMA_URL`, `DATABASE_URL_UNPOOLED`, …), applies migrations over the direct connection, then builds. **Branch deploys use the Preview environment, so make sure the variables are enabled for Preview too.** The script, and schedules `/api/jobs` daily. The Hobby plan allows daily crons; on Pro, change the schedule to every 15 minutes.
 5. Seed once: `DATABASE_URL="<url>" SEED_ADMIN_EMAIL=... SEED_ADMIN_PASSWORD=... SEED_DEMO=true npm run db:seed`.
 6. Every push to a branch gets its own **Preview URL**. Pushes to the production branch go live.
 

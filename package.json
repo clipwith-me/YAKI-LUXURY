@@ -4,7 +4,7 @@
   "private": true,
   "description": "YAKI'S LUXE HOMES \u2014 premium real-estate marketplace & referral platform (Nigeria).",
   "engines": {
-    "node": ">=20.11"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "next dev",
