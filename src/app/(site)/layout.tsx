@@ -19,7 +19,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
   return (
     <>
       {showDemo && (
-        <div className="fixed inset-x-0 bottom-[60px] z-40 bg-brass-600 px-4 py-1.5 text-center text-[11px] tracking-wide text-white md:bottom-0">
+        <div className="fixed inset-x-0 bottom-0 z-40 hidden bg-brass-600 px-4 py-1.5 text-center text-[11px] tracking-wide text-white md:block">
           DEMO DATA — listings, partners and articles marked “Demo” are fictional and shown for demonstration only. <Link href="/legal/property-disclaimer" className="underline">Learn more</Link>
         </div>
       )}
