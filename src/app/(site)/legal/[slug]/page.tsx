@@ -7,6 +7,7 @@ import { LEGAL_DOCS, LEGAL_REVIEW_NOTICE } from "@/content/legal";
 import { getSetting } from "@/server/settings";
 
 type Props = { params: Promise<{ slug: string }> };
+export const revalidate = 300;
 export function generateStaticParams() {
   return Object.keys(LEGAL_DOCS).map((slug) => ({ slug }));
 }
@@ -19,7 +20,8 @@ export default async function LegalPage({ params }: Props) {
   const { slug } = await params;
   const doc = LEGAL_DOCS[slug];
   if (!doc) notFound();
-  const reviewed = await getSetting("legal.reviewedByCounsel");
+  // Prerendered at build time, possibly without a database: fall back to showing the draft notice.
+  const reviewed = await getSetting("legal.reviewedByCounsel").catch(() => false);
   return (
     <>
       <PageHero crumbs={[{ label: "Legal" }, { label: doc.title }]} eyebrow="Legal & trust" title={doc.title} description={doc.summary} />

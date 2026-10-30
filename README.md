@@ -58,6 +58,24 @@ Demo data is **fictional and labelled DEMO everywhere**. It is seeded only when 
 
 ## Deployment
 
+### Netlify
+
+This is a full-stack app (server functions + PostgreSQL), so **don't use drag-and-drop deploys**. Netlify needs to build from the Git repository.
+
+1. Create a PostgreSQL database, e.g. [Neon](https://neon.tech) (free tier). Copy its connection string.
+2. Netlify → **Add new project → Import an existing project → GitHub →** `clipwith-me/yaki-luxury`, branch `claude/ecstatic-ride-h48xzp` (or `main` once merged).
+3. **Site configuration → Environment variables**:
+   - `DATABASE_URL`: the Neon string. Use the *pooled* URL with `?sslmode=require`.
+   - `APP_SECRET`: 32+ random characters.
+   - `CRON_SECRET`: 32+ random characters.
+   - `NEXT_PUBLIC_SITE_URL`: e.g. `https://your-site.netlify.app`.
+4. Deploy. `netlify.toml` runs `prisma migrate deploy` and then the build.
+5. Seed once from your computer: `DATABASE_URL="<neon url>" SEED_ADMIN_EMAIL=... SEED_ADMIN_PASSWORD=... npm run db:seed`. Add `SEED_DEMO=true` if you want the demo listings.
+
+Limitation on serverless hosts: the `local` storage driver can't persist uploads, so photo and document *uploads* need the S3-compatible driver. Listing photos added as URLs work.
+
+### General
+
 - Any Node 20+ host with PostgreSQL works: Vercel + Neon/Supabase, Render, or Railway.
 - Build command: `npx prisma migrate deploy && npm run build`.
 - Required environment variables: `DATABASE_URL`, `NEXT_PUBLIC_SITE_URL`, `APP_SECRET` (32+ random characters), `CRON_SECRET`. See `.env.example`.
